@@ -1,26 +1,177 @@
 @import "tailwindcss";
 
+/* =========================================================================
+   SalesSheet AI — design tokens (spec §2)
+   Single light theme. This is a data tool: flat color blocks + borders,
+   minimal radius, quiet shadows. No dark-mode inversion.
+   ========================================================================= */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ink: #14201b; /* primary text, near-black w/ green undertone */
+  --paper: #f5f6f1; /* main background, warm off-white */
+  --paper-dim: #eceee6; /* secondary surface (toolbars/headers) */
+  --forest: #1f4d3a; /* primary brand — buttons, active, links */
+  --forest-deep: #123328; /* hover/pressed for forest */
+  --amber: #e8a33d; /* AI-touched / AI-generated indicator */
+  --amber-soft: #f6d9a6; /* light amber background tint */
+  --brick: #c1442e; /* flagged / anomaly / duplicate indicator */
+  --gridline: #d8dad2; /* borders, dividers, table gridlines */
+  --ink-soft: #5b655f; /* secondary / muted text */
+
+  /* Soft background tints used for cell/row highlights */
+  --amber-wash: #fbf1dd; /* AI cell background */
+  --brick-wash: #f7e2dd; /* flagged cell background */
+  --row-hover: #fbf3e2; /* row hover (light amber, not gray) */
+  --zebra: #f0f1eb; /* even-row zebra tint */
 }
 
+/* Map tokens into Tailwind's theme so utilities like bg-forest / text-amber /
+   border-gridline / font-mono are generated. `inline` lets font utilities
+   resolve the runtime next/font CSS variables. */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-ink: var(--ink);
+  --color-paper: var(--paper);
+  --color-paper-dim: var(--paper-dim);
+  --color-forest: var(--forest);
+  --color-forest-deep: var(--forest-deep);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-brick: var(--brick);
+  --color-gridline: var(--gridline);
+  --color-ink-soft: var(--ink-soft);
+  --color-amber-wash: var(--amber-wash);
+  --color-brick-wash: var(--brick-wash);
+  --color-row-hover: var(--row-hover);
+  --color-zebra: var(--zebra);
+
+  --font-display: var(--font-space-grotesk), "Space Grotesk", ui-sans-serif,
+    system-ui, sans-serif;
+  --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace,
+    "SFMono-Regular", Menlo, Consolas, monospace;
+
+  /* Quiet, sharp elevation only where necessary — no glow */
+  --radius-card: 3px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background-color: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--forest) 20%, transparent);
+  }
+  /* Consistent focus ring in brand color */
+  :focus-visible {
+    outline: 2px solid var(--forest);
+    outline-offset: 1px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  /* Thin, unobtrusive scrollbars for grid/chat regions */
+  .scroll-quiet {
+    scrollbar-width: thin;
+    scrollbar-color: var(--gridline) transparent;
+  }
+  .scroll-quiet::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .scroll-quiet::-webkit-scrollbar-thumb {
+    background: var(--gridline);
+    border-radius: 6px;
+    border: 2px solid var(--paper);
+  }
+  .scroll-quiet::-webkit-scrollbar-thumb:hover {
+    background: #c3c6bd;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  /* Numbers align to consistent widths */
+  .nums {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+}
+
+/* ===== Landing / demo animations ===== */
+@keyframes ss-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes ss-scan {
+  0% {
+    transform: translateY(-8%);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(108%);
+    opacity: 0;
+  }
+}
+@keyframes ss-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+@keyframes ss-pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Transient flash applied imperatively to a row when a chat citation targets
+ * it (see Grid). The reduced-motion block below neutralizes it. */
+.ss-cite-pulse {
+  animation: ss-pulse-dot 0.9s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

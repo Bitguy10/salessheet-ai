@@ -1,36 +1,77 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SalesSheet AI
 
-## Getting Started
+Turn messy sales notes into a clean, interactive spreadsheet — in the browser, for free.
 
-First, run the development server:
+Paste a pile of unstructured sales data (or import a CSV/PDF) and SalesSheet AI
+structures it into a typed grid you can sort, chart, and interrogate in plain
+English. Your data stays on your machine; the only thing that leaves is the text
+you hand to the AI for structuring or chat, and that goes through a **server-side
+proxy** so your API key is never exposed to the browser.
+
+## What it does
+
+- **Messy-text extraction** — paste free-form notes; the AI returns strict, typed rows.
+- **CSV / PDF import** — delimited files parse locally; PDFs are read client-side.
+- **Anomaly flagging** — duplicates, missing values, outliers, and returns are surfaced.
+- **Charts & KPIs** — aggregates and visualizations, all computed by the app.
+- **Grounded chat** — ask questions in natural language; answers cite the exact rows.
+- **CSV export** — take your cleaned data anywhere.
+
+## How the AI behaves (by design)
+
+SalesSheet AI is built so the model never fabricates numbers:
+
+- **The AI never does arithmetic.** Every total, average, and aggregate is computed
+  by the app from your data — the model only *structures* and *retrieves*.
+- **Ambiguous or missing fields become `null`, never a guess.** Uncertain values are
+  flagged for review rather than invented.
+- **Chat is retrieval-grounded.** Every answer is tied to specific rows, with citations.
+
+Colour language: **amber** marks AI-inferred / AI-touched values; **brick red** marks
+anything flagged for your review.
+
+## Tech stack
+
+- [Next.js 16](https://nextjs.org) (App Router, Turbopack) + React 19
+- Tailwind CSS v4, TypeScript (strict)
+- [Groq](https://groq.com) API via a server-side proxy (default model `llama-3.3-70b-versatile`)
+- IndexedDB (via `idb`) for local persistence — no accounts, no backend database
+- `recharts` for charts, `pdfjs-dist` for PDF import
+
+## Running locally
+
+```bash
+npm install
+```
+
+Create `.env.local` and add your Groq key (get one free at
+<https://console.groq.com/keys>):
+
+```
+GROQ_API_KEY=your_key_here
+# optional: GROQ_MODEL=llama-3.3-70b-versatile
+```
+
+Then start the dev server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:3000> — the workspace lives at `/app`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> **No key?** The app still works: CSV/TSV parsing, the sample dataset, anomaly
+> detection, charts, and CSV export all run locally, and chat falls back to
+> app-computed KPIs. Only free-form Q&A and messy-text extraction need a key.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Deploying
 
-## Learn More
+Deploys cleanly to [Vercel](https://vercel.com). Add `GROQ_API_KEY` as an
+environment variable in your Vercel project settings — it is read only on the
+server and is never sent to the browser.
 
-To learn more about Next.js, take a look at the following resources:
+## Privacy
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Your sales data is stored locally in your browser (IndexedDB). It is sent to the
+Groq API only when you use AI extraction or free-form chat, and only through this
+app's server-side proxy.
