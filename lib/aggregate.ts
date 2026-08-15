@@ -114,6 +114,188 @@ export function chartDefaults(sheet: Sheet): { dim: Column | null; measure: Colu
 }
 
 // ---------------------------------------------------------------------------
+// Derived aggregates (spec §5): the "excluding flagged" and per-group figures
+// people actually ask for in chat. We pre-compute them HERE so the model never
+// has to subtract/average anything itself — it only relays a finished number.
+// ---------------------------------------------------------------------------
+
+/** Round to cents so relayed sums never carry floating-point noise. */
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+/** Sum + count of a numeric column over a set of rows (numeric cells only). */
+function sumCount(rows: Row[], colKey: string): { sum: number; count: number } {
+  let sum = 0;
+  let count = 0;
+  for (const r of rows) {
+    const n = toNumber(r.data[colKey]);
+    if (n !== null) {
+      sum += n;
+      count += 1;
+    }
+  }
+  return { sum, count };
+}
+
+export interface DerivedMeasure {
+  label: string;
+  /** Sum over all rows. */
+  total: number;
+  rowsCounted: number;
+  /** Sum over rows carrying NO flag of any type. */
+  excludingFlagged: number;
+  averageExcludingFlagged: number | null;
+  rowsCountedExcludingFlagged: number;
+  /** Sum with the rows carrying each specific flag type removed (present types only). */
+  excludingFlagType: Record<string, number>;
+}
+
+export interface DerivedGroupMeasure {
+  sum: number;
+  average: number | null;
+  sumExcludingFlagged: number;
+  averageExcludingFlagged: number | null;
+}
+
+export interface DerivedGroup {
+  label: string;
+  count: number;
+  countExcludingFlagged: number;
+  /** Per numeric column (keyed by column label). */
+  measures: Record<string, DerivedGroupMeasure>;
+}
+
+/** A pre-computed A-vs-B comparison so the model never subtracts group totals itself. */
+export interface DerivedComparison {
+  dimension: string;
+  measure: string;
+  a: string;
+  b: string;
+  aValue: number;
+  bValue: number;
+  /** aValue − bValue (a is the higher-ranked group, so this is ≥ 0). */
+  difference: number;
+  aExcludingFlagged: number;
+  bExcludingFlagged: number;
+  differenceExcludingFlagged: number;
+}
+
+export interface DerivedAggregates {
+  /** Per numeric measure, keyed by column label. */
+  measures: Record<string, DerivedMeasure>;
+  /** Per dimension label → its groups, each with per-measure sums/averages. */
+  breakdowns: Record<string, DerivedGroup[]>;
+  /** Pairwise differences for the primary dimension × primary measure. */
+  comparisons: DerivedComparison[];
+  /** Flag types actually present in the sheet (scope of "excludingFlagType"). */
+  flagTypesPresent: string[];
+}
+
+/**
+ * Pre-compute the derived figures chat questions lean on: totals/averages that
+ * exclude flagged rows (all flags, or one specific flag type), and per-group
+ * breakdowns of every numeric measure with an "excluding flagged" variant.
+ * All arithmetic lives here; the model only narrates the results.
+ */
+export function computeDerived(sheet: Sheet): DerivedAggregates {
+  const numeric = sheet.columns.filter(isNumericColumn);
+  const unflagged = sheet.rows.filter((r) => r.flags.length === 0);
+  const flagTypesPresent = [...new Set(sheet.rows.flatMap((r) => r.flags.map((f) => f.type)))];
+
+  const measures: Record<string, DerivedMeasure> = {};
+  for (const c of numeric) {
+    const all = sumCount(sheet.rows, c.key);
+    const excl = sumCount(unflagged, c.key);
+    const excludingFlagType: Record<string, number> = {};
+    for (const t of flagTypesPresent) {
+      const withoutType = sheet.rows.filter((r) => !r.flags.some((f) => f.type === t));
+      excludingFlagType[t] = round2(sumCount(withoutType, c.key).sum);
+    }
+    measures[c.label] = {
+      label: c.label,
+      total: round2(all.sum),
+      rowsCounted: all.count,
+      excludingFlagged: round2(excl.sum),
+      averageExcludingFlagged: excl.count ? round2(excl.sum / excl.count) : null,
+      rowsCountedExcludingFlagged: excl.count,
+      excludingFlagType,
+    };
+  }
+
+  const breakdowns: Record<string, DerivedGroup[]> = {};
+  const dims = sheet.columns.filter((c) => c.type === "text" || c.type === "date");
+  const pm = primaryMeasure(sheet.columns);
+  for (const d of dims.slice(0, 4)) {
+    const byLabel = new Map<string, Row[]>();
+    for (const r of sheet.rows) {
+      const raw = r.data[d.key];
+      const label = raw === null || String(raw).trim() === "" ? "—" : String(raw);
+      const arr = byLabel.get(label);
+      if (arr) arr.push(r);
+      else byLabel.set(label, [r]);
+    }
+    if (byLabel.size < 2 || byLabel.size > 40) continue;
+
+    const groups: DerivedGroup[] = [];
+    for (const [label, grp] of byLabel) {
+      const grpUnflagged = grp.filter((r) => r.flags.length === 0);
+      const measuresForGroup: Record<string, DerivedGroupMeasure> = {};
+      for (const c of numeric) {
+        const a = sumCount(grp, c.key);
+        const e = sumCount(grpUnflagged, c.key);
+        measuresForGroup[c.label] = {
+          sum: round2(a.sum),
+          average: a.count ? round2(a.sum / a.count) : null,
+          sumExcludingFlagged: round2(e.sum),
+          averageExcludingFlagged: e.count ? round2(e.sum / e.count) : null,
+        };
+      }
+      groups.push({
+        label,
+        count: grp.length,
+        countExcludingFlagged: grpUnflagged.length,
+        measures: measuresForGroup,
+      });
+    }
+    groups.sort((x, y) =>
+      pm ? (y.measures[pm.label]?.sum ?? 0) - (x.measures[pm.label]?.sum ?? 0) : y.count - x.count,
+    );
+    breakdowns[d.label] = groups;
+  }
+
+  // Pairwise A-vs-B differences for the primary dimension × primary measure, so
+  // "how much more did A make than B" is a relayed number, not a subtraction.
+  const comparisons: DerivedComparison[] = [];
+  const pdim = primaryDimension(sheet.columns);
+  const pdimGroups = pm && pdim ? breakdowns[pdim.label] : undefined;
+  if (pm && pdim && pdimGroups) {
+    const top = pdimGroups.slice(0, 8); // bound the pair count (≤ 28 pairs)
+    for (let i = 0; i < top.length; i++) {
+      for (let j = i + 1; j < top.length; j++) {
+        const am = top[i].measures[pm.label];
+        const bm = top[j].measures[pm.label];
+        if (!am || !bm) continue;
+        comparisons.push({
+          dimension: pdim.label,
+          measure: pm.label,
+          a: top[i].label,
+          b: top[j].label,
+          aValue: am.sum,
+          bValue: bm.sum,
+          difference: round2(am.sum - bm.sum),
+          aExcludingFlagged: am.sumExcludingFlagged,
+          bExcludingFlagged: bm.sumExcludingFlagged,
+          differenceExcludingFlagged: round2(am.sumExcludingFlagged - bm.sumExcludingFlagged),
+        });
+      }
+    }
+  }
+
+  return { measures, breakdowns, comparisons, flagTypesPresent };
+}
+
+// ---------------------------------------------------------------------------
 // Grounded context for chat / summary (spec §5).
 // The model receives already-computed numbers + the relevant rows, and is told
 // to answer only from them. This is the retrieval + pre-aggregation layer.
@@ -147,6 +329,7 @@ export interface GroundedContext {
     byColumn: Record<string, NumStats>;
     groups: Record<string, GroupDatum[]>;
     kpis: Kpis;
+    derived: DerivedAggregates;
   };
   flagged: { row: number; label: string }[];
 }
@@ -225,7 +408,7 @@ export function buildContext(sheet: Sheet, question?: string): GroundedContext {
     rowCount: sheet.rows.length,
     includedRows: rows.length,
     rows,
-    aggregates: { byColumn, groups, kpis: computeKpis(sheet) },
+    aggregates: { byColumn, groups, kpis: computeKpis(sheet), derived: computeDerived(sheet) },
     flagged,
   };
 }
