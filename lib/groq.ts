@@ -41,8 +41,21 @@ interface CallOptions {
   signal?: AbortSignal;
 }
 
+/** Strip a leading UTF-8 BOM (U+FEFF, char code 0xFEFF) and surrounding
+ *  whitespace from an env value. A BOM commonly sneaks into a secret when it is
+ *  pasted from, or imported out of, a BOM-prefixed file. Left in the API key it
+ *  makes the `Authorization` header value un-encodable — an HTTP header is a
+ *  ByteString and every code point must be <= 255 — so fetch() throws a
+ *  TypeError and every request dies before it leaves the server. */
+function sanitizeKey(raw: string): string {
+  const noBom = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  return noBom.trim();
+}
+
 export async function callGroq(messages: ChatTurn[], opts: CallOptions = {}): Promise<string> {
-  const key = process.env.GROQ_API_KEY;
+  const rawKey = process.env.GROQ_API_KEY;
+  if (!rawKey) throw new MissingKeyError();
+  const key = sanitizeKey(rawKey);
   if (!key) throw new MissingKeyError();
 
   const model = process.env.GROQ_MODEL || DEFAULT_MODEL;
