@@ -34,7 +34,7 @@ anything flagged for your review.
 
 - [Next.js 16](https://nextjs.org) (App Router, Turbopack) + React 19
 - Tailwind CSS v4, TypeScript (strict)
-- [Groq](https://groq.com) API via a server-side proxy (default model `llama-3.3-70b-versatile`)
+- [Groq](https://groq.com) API via a server-side proxy (default model `openai/gpt-oss-120b`)
 - IndexedDB (via `idb`) for local persistence — no accounts, no backend database
 - `recharts` for charts, `pdfjs-dist` for PDF import
 
@@ -49,7 +49,7 @@ Create `.env.local` and add your Groq key (get one free at
 
 ```
 GROQ_API_KEY=your_key_here
-# optional: GROQ_MODEL=llama-3.3-70b-versatile
+# optional: GROQ_MODEL=openai/gpt-oss-120b
 ```
 
 Then start the dev server:

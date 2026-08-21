@@ -3,9 +3,11 @@
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-/** Default model — override with GROQ_MODEL. llama-3.3-70b-versatile is a
- *  stable Groq production model well-suited to strict JSON extraction. */
-export const DEFAULT_MODEL = "llama-3.3-70b-versatile";
+/** Default model — override with GROQ_MODEL. openai/gpt-oss-120b is a current
+ *  Groq production model with JSON mode + strong reasoning, well-suited to
+ *  strict JSON extraction and grounded Q&A. (llama-3.3-70b-versatile was
+ *  decommissioned by Groq.) */
+export const DEFAULT_MODEL = "openai/gpt-oss-120b";
 
 export class MissingKeyError extends Error {
   constructor() {
@@ -50,7 +52,19 @@ export async function callGroq(messages: ChatTurn[], opts: CallOptions = {}): Pr
     temperature: opts.temperature ?? 0.2,
     max_tokens: opts.maxTokens ?? 2048,
   };
-  if (opts.json) body.response_format = { type: "json_object" };
+  if (opts.json) {
+    body.response_format = { type: "json_object" };
+    // Reasoning models must keep their chain-of-thought out of the JSON payload.
+    // gpt-oss returns reasoning in a separate field automatically (and rejects
+    // reasoning_format), so we just cap the effort to stay within max_tokens.
+    // Other current Groq reasoning models (e.g. qwen3.6) require
+    // reasoning_format=hidden in JSON mode or they 400 / leak <think> tags.
+    if (model.includes("gpt-oss")) {
+      body.reasoning_effort = "low";
+    } else {
+      body.reasoning_format = "hidden";
+    }
+  }
 
   const res = await fetch(GROQ_URL, {
     method: "POST",
